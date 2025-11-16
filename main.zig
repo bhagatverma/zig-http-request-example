@@ -56,10 +56,6 @@ fn httpRequest(
     var client: std.http.Client = .{ .allocator = allocator };
     defer client.deinit();
 
-    // Buffer for response body
-    var response_body: std.ArrayList(u8) = .empty;
-    defer response_body.deinit(allocator);
-
     const result = try client.fetch(.{
         .location = .{ .uri = parsed_uri },
         .method = method.toStdMethod(),
