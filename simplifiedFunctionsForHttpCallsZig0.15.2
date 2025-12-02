@@ -1,0 +1,133 @@
+const std = @import("std");
+
+pub const HttpMethod = enum {
+    GET,
+    POST,
+    PUT,
+    DELETE,
+    PATCH,
+    HEAD,
+    OPTIONS,
+
+    pub fn toStdMethod(self: HttpMethod) std.http.Method {
+        return switch (self) {
+            .GET => .GET,
+            .POST => .POST,
+            .PUT => .PUT,
+            .DELETE => .DELETE,
+            .PATCH => .PATCH,
+            .HEAD => .HEAD,
+            .OPTIONS => .OPTIONS,
+        };
+    }
+};
+
+pub const HttpResponse = struct {
+    status: std.http.Status,
+    body: []const u8,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *HttpResponse) void {
+        self.allocator.free(self.body);
+    }
+};
+
+pub const HttpRequestError = error{
+    InvalidUri,
+    RequestFailed,
+} || std.mem.Allocator.Error || std.http.Client.FetchError;
+
+/// Makes an HTTP request with the specified parameters
+/// Caller owns the returned HttpResponse and must call deinit() on it
+fn httpRequest(
+    allocator: std.mem.Allocator,
+    uri: []const u8,
+    method: HttpMethod,
+    headers: ?[]const std.http.Header,
+    payload: ?[]const u8,
+) HttpRequestError!HttpResponse {
+    const parsed_uri = std.Uri.parse(uri) catch return error.InvalidUri;
+
+    var redirect_buffer: [8 * 1024]u8 = undefined;
+    var body: std.Io.Writer.Allocating = .init(allocator);
+    defer body.deinit();
+    try body.ensureUnusedCapacity(64);
+
+    var client: std.http.Client = .{ .allocator = allocator };
+    defer client.deinit();
+
+    const result = try client.fetch(.{
+        .location = .{ .uri = parsed_uri },
+        .method = method.toStdMethod(),
+        .redirect_buffer = &redirect_buffer,
+        .response_writer = &body.writer,
+        .extra_headers = headers orelse &[_]std.http.Header{},
+        .payload = payload,
+    });
+    const owned_body = try body.toOwnedSlice();
+    // if (result.status != .ok) {
+    std.debug.print("HTTP request status: {}, and body is {s}\n", .{ result.status, owned_body });
+    //     return HttpRequestError.RequestFailed;
+    // }
+
+    return HttpResponse{
+        .status = result.status,
+        .body = owned_body,
+        .allocator = allocator,
+    };
+}
+
+pub fn get_request(allocator: std.mem.Allocator, uri: []const u8, headers: ?[]const std.http.Header) !HttpResponse {
+    return httpRequest(allocator, uri, .GET, headers, null);
+}
+
+pub fn post_request(
+    allocator: std.mem.Allocator,
+    uri: []const u8,
+    headers: ?[]const std.http.Header,
+    payload: ?[]const u8,
+) !HttpResponse {
+    return httpRequest(allocator, uri, .POST, headers, payload);
+}
+
+pub fn put_request(
+    allocator: std.mem.Allocator,
+    uri: []const u8,
+    headers: ?[]const std.http.Header,
+    payload: ?[]const u8,
+) !HttpResponse {
+    return httpRequest(allocator, uri, .PUT, headers, payload);
+}
+
+pub fn delete_request(
+    allocator: std.mem.Allocator,
+    uri: []const u8,
+    headers: ?[]const std.http.Header,
+) !HttpResponse {
+    return httpRequest(allocator, uri, .DELETE, headers, null);
+}
+
+pub fn patch_request(
+    allocator: std.mem.Allocator,
+    uri: []const u8,
+    headers: ?[]const std.http.Header,
+    payload: ?[]const u8,
+) !HttpResponse {
+    return httpRequest(allocator, uri, .PATCH, headers, payload);
+}
+
+pub fn head_request(
+    allocator: std.mem.Allocator,
+    uri: []const u8,
+    headers: ?[]const std.http.Header,
+) !HttpResponse {
+    return httpRequest(allocator, uri, .HEAD, headers, null);
+}
+
+pub fn options_request(
+    allocator: std.mem.Allocator,
+    uri: []const u8,
+    headers: ?[]const std.http.Header,
+) !HttpResponse {
+    return httpRequest(allocator, uri, .OPTIONS, headers, null);
+}
